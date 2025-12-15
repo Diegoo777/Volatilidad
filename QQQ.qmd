@@ -1,0 +1,669 @@
+---
+title: "Volatildad"
+author: "Diego Pedraza Barajas 2105940X
+
+
+          Abigail Sampedro Gutierrez 2105944A
+          
+          
+            Ana Berenice Garcia Hernandez 2105931K"
+            
+lang: es
+format: html
+---
+
+# ¿Cómo medimos el miedo en los mercados? Una guía simple sobre Volatilidad Histórica, EWMA y GARCH
+
+## Introducción: El pulso del mercado
+
+Imagina que estás intentando predecir el clima. Si ayer hubo una tormenta, es probable que hoy todavía esté nublado o llueva un poco. En finanzas, la "volatilidad" funciona de manera muy similar: es el termómetro que mide qué tan nervioso o tranquilo está el mercado.
+
+Para un administrador de riesgos, saber el precio de una acción no es suficiente; necesita saber qué tanto podría moverse ese precio mañana para no perder la camisa. El gran problema es que la volatilidad no se ve a simple vista, hay que calcularla. En este ensayo, exploraremos cómo hemos intentado medirla a lo largo del tiempo: desde el método más básico (promedio simple), pasando por uno más ágil (EWMA), hasta llegar al modelo "inteligente" (GARCH), y por qué entender el concepto de "conglomerado" es la clave de todo.
+
+## La Clave: "Conglomerado de Volatilidades" (Volatility Clustering)
+
+Antes de ver las fórmulas, hablemos de cómo se comportan los mercados. La volatilidad no es aleatoria; es pegajosa. Si hoy el mercado se desploma, mañana es muy probable que siga moviéndose bruscamente, ya sea subiendo o bajando. A esto se le llama *conglomerado de volatilidades.*
+
+La analogía perfecta son los terremotos. Cuando ocurre un gran sismo (un shock en el mercado), no vuelve la calma de inmediato; le siguen muchas réplicas durante días o semanas. Los periodos de calma traen más calma, y los periodos de crisis traen más crisis. Entender esto es vital: si tu modelo matemático asume que cada día es independiente (como lanzar una moneda), vas a subestimar el riesgo enormemente justo cuando más necesitas protegerte.
+
+## 1. El Modelo Convencional (Volatilidad Histórica) y el "Fantasma"
+
+La forma más vieja de calcular la volatilidad es simple: tomas los últimos, digamos, 100 días y sacas un promedio de qué tanto variaron los precios.
+
+- Lo bueno: Es facilísimo de calcular y explicar.
+
+- Lo malo: Tiene un defecto grave llamado el "Efecto Fantasma"
+
+Imagina que hubo una crisis terrible hace 99 días. Hoy el mercado está tranquilo, pero tu cálculo sigue diciendo que el riesgo es altísimo porque ese día malo sigue en tu promedio. Mañana, cuando ese dato cumpla 101 días y "salga" de tu ventana de cálculo, la volatilidad caerá de golpe artificialmente, como si un fantasma hubiera desaparecido, aunque el mercado de hoy sea igual al de ayer. Además, tarda mucho en reaccionar a las crisis nuevas.
+
+
+## 2. El Modelo Ágil: Suavizamiento Exponencial (EWMA)
+
+Para arreglar lo del fantasma, los expertos (impulsados por J.P. Morgan en los 90s) crearon el EWMA. La idea es sencilla: lo que pasó ayer es más importante que lo que pasó hace un mes.
+
+- Cómo funciona: Le da mucho peso al día más reciente y va olvidando el pasado gradualmente (exponencialmente).
+
+- Lo bueno: Reacciona rapidísimo. Si hoy hay un crash, mañana el modelo te grita "¡Cuidado!". Y como olvida suavemente, no tiene efecto fantasma.
+
+- Lo malo: Asume que la volatilidad actual durará para siempre. Si hoy hay crisis, el modelo proyecta crisis infinita. No sabe que, eventualmente, las cosas se calman.
+
+## 3. El Modelo Inteligente: GARCH
+
+Aquí entra el peso pesado: GARCH (Heterocedasticidad Condicional Autorregresiva Generalizada). Suena complicado, pero su lógica es sentido común puro aplicado a matemáticas. A diferencia del EWMA, el GARCH entiende que la volatilidad tiene "gravedad".
+
+El modelo GARCH calcula el riesgo basándose en tres cosas:
+
+- Reacción: Qué tan fuerte fue el golpe de ayer (como el EWMA).
+
+-Memoria: Qué tan nerviosos estábamos ayer (persistencia).
+
+-Reversión a la media (El ancla): Esta es la magia. El GARCH sabe que existe un nivel "normal" de volatilidad a largo plazo. Si el mercado está muy loco hoy, el modelo predice que poco a poco volverá a la normalidad.
+
+Es el modelo favorito para valorar opciones y riesgos a largo plazo porque dibuja una trayectoria realista de cómo se disipará la tormenta.
+
+## Conclusión: ¿Cuál es mejor?
+
+No hay un ganador único, depende de para qué lo quieras. Aquí está el resumen para la toma de decisiones:
+
+- Usa Volatilidad Histórica si necesitas algo rápido para un reporte simple y el mercado está estable. Pero cuidado con el "fantasma".
+
+- Usa EWMA si gestionas riesgos día a día (trading). Es excelente para protegerte rápido de los golpes del mercado.
+
+- Usa GARCH si eres un profesional administrando portafolios a futuro. Es el único que entiende que las crisis (conglomerados) son intensas pero temporales, y que todo tiende a volver a su cauce.
+
+
+En resumen: la volatilidad no es solo un número, es una historia de miedo y memoria en el mercado. Elegir el modelo correcto es saber leer esa historia para no llevarnos sorpresas desagradables.
+
+
+
+
+
+
+
+
+## Cargar librerias
+
+```{r, message = FALSE}
+# Liberías de yahoo finance de Github:
+source("https://raw.githubusercontent.com/OscarVDelatorreTorres/yahooFinance/main/datosMultiplesYahooFinance.R")
+# Librerías de cuantificación de riesgos en Github:
+source("https://raw.githubusercontent.com/OscarVDelatorreTorres/riskManagementSuiteR/refs/heads/main/riskManagementSuiteFunctions.R")
+# Librerías de uso general:
+library(plotly)
+library(dplyr)
+library(tseries)
+library(quantmod)
+library(tidyverse)
+library(tibble)
+library(forecast)
+library(DT)
+library(rugarch)
+```
+
+
+## Extraccion de precios de yahoo finanzas
+```{r, results = "hide"}
+tickerV=c("QQQ")
+deD=Sys.Date()-(3*365)
+hastaD=Sys.Date()
+per="D"
+paridadFX="USDMXN=X"
+convertirFX=c(TRUE) # Convertimos de USD a MXN
+
+Datos=historico_multiples_precios(tickers=tickerV,de=deD,hasta=hastaD,periodicidad=per,fxRate=paridadFX,whichToFX=convertirFX)
+precios=Datos$tablaPrecios
+rendimientos=Datos$tablaRendimientosCont
+
+```
+## Calculo y creaccion de la tabla de rendimientos
+
+```{r}
+datatable(
+rendimientos %>%
+mutate(QQQ = round(QQQ * 100, 4)) %>% 
+rename(`Rendimiento (%)` = QQQ),       
+options = list(pageLength = 10),
+caption = 'Tabla de rendimientos diarios deL fondo QQQ'
+)
+
+```
+
+## filtraccion del periodo de precios y rendiminetos
+```{r}
+# Definir fechas del intervalo
+fecha_inicio <- as.Date("2023-11-20")
+fecha_fin    <- as.Date("2024-11-20")
+
+# Asegurarnos de que la fecha esté en formato Date
+precios <- precios %>%
+  mutate(Date = as.Date(Date))
+
+rendimientos <- rendimientos %>%
+  mutate(Date = as.Date(Date))
+
+# Filtrar precios
+precios_filtrados <- precios %>%
+  filter(Date >= fecha_inicio & Date <= fecha_fin)
+
+# Filtrar rendimientos
+rendimientos_filtrados <- rendimientos %>%
+  filter(Date >= fecha_inicio & Date <= fecha_fin)
+
+```
+
+## tablas filtradas
+```{r}
+datatable(precios_filtrados)
+
+datatable(
+  rendimientos_filtrados %>%
+    mutate(QQQ = round(QQQ * 100, 4)) %>% 
+    rename(`Rendimiento (%)` = QQQ),
+  options = list(pageLength = 10),
+  caption = 'Rendimientos diarios del fondo QQQ (20-11-2023 a 20-11-2024)'
+)
+
+```
+
+## rendimientos continuos para una inversion de 500k eliminando datos vacios
+```{r}
+# Eliminar observaciones problemáticas
+rendimientos_limpios <- rendimientos_filtrados %>%
+  filter(
+    !is.na(QQQ),
+    QQQ > -1
+  )
+
+# Rendimientos continuamente compuestos
+rend_log <- rendimientos_limpios %>%
+  mutate(
+    r_log = log(1 + QQQ)
+  ) %>%
+  select(Date, r_log)
+
+# Inversión inicial
+inversion_inicial <- 500000
+
+# Rendimientos monetarios
+rend_log <- rend_log %>%
+  mutate(
+    rendimiento_mxn = inversion_inicial * r_log
+  )
+
+```
+
+## Volatilidad fija en el tiempo
+
+```{r}
+vol_fija <- sd(rend_log$r_log, na.rm = TRUE)
+vol_fija
+
+```
+## Volatilidad con suavizamiento exponencial landa 95
+
+```{r}
+lambda <- 0.95
+n <- nrow(rend_log)
+
+var_ewma <- numeric(n)
+var_ewma[1] <- vol_fija^2
+
+for (i in 2:n) {
+  var_ewma[i] <- lambda * var_ewma[i - 1] +
+    (1 - lambda) * rend_log$r_log[i - 1]^2
+}
+
+rend_log <- rend_log %>%
+  mutate(vol_ewma = sqrt(var_ewma))
+
+```
+
+## GARCH simetrico con funcion de verosimilidad gaussiana
+
+```{r}
+# Vector numérico (rugarch lo exige)
+r_garch <- as.numeric(rend_log$r_log)
+
+spec_garch <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "norm"
+)
+
+fit_garch <- ugarchfit(
+  spec = spec_garch,
+  data = r_garch,
+  solver = "hybrid"
+)
+
+rend_log <- rend_log %>%
+  mutate(vol_garch = as.numeric(sigma(fit_garch)))
+
+```
+
+
+## Comparacion del error cuantitativo medio
+
+```{r}
+# Comparación de MSE (Mean Squared Error)
+# Usamos r^2 como proxy de la varianza realizada
+
+mse_fija <- mean((rend_log$r_log^2 - vol_fija^2)^2, na.rm = TRUE)
+mse_ewma <- mean((rend_log$r_log^2 - rend_log$vol_ewma^2)^2, na.rm = TRUE)
+mse_garch <- mean((rend_log$r_log^2 - rend_log$vol_garch^2)^2, na.rm = TRUE)
+
+comparacion <- tibble(
+  Modelo = c("Volatilidad fija", "EWMA", "GARCH(1,1)"),
+  MSE = c(mse_fija, mse_ewma, mse_garch)
+)
+
+datatable(comparacion, caption = "Comparación de Error Cuadrático Medio (MSE)")
+```
+
+#Grafica comparativa de los tres a lo largo del tiempo
+
+```{r}
+# Gráfica 1: Volatilidad fija
+g1 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = rep(vol_fija, nrow(rend_log)),
+  type = "scatter",
+  mode = "lines",
+  name = "Volatilidad fija"
+)
+
+# Gráfica 2: Volatilidad EWMA
+g2 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_ewma,
+  type = "scatter",
+  mode = "lines",
+  name = "Volatilidad EWMA"
+)
+
+# Gráfica 3: Volatilidad GARCH
+g3 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_garch,
+  type = "scatter",
+  mode = "lines",
+  name = "Volatilidad GARCH"
+)
+
+# Subplots con fechas visibles en todos los planos
+subplot(
+  g1, g2, g3,
+  nrows = 3,
+  shareX = TRUE,
+  titleY = TRUE
+) %>%
+  layout(
+    title = "Comparación de modelos de volatilidad – Fondo QQQ (MXN)",
+
+    xaxis  = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    xaxis2 = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    xaxis3 = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+
+    yaxis  = list(title = "Volatilidad fija"),
+    yaxis2 = list(title = "Volatilidad EWMA"),
+    yaxis3 = list(title = "Volatilidad GARCH")
+  )
+
+```
+
+
+## lamda al 98%
+```{r}
+lambda_098 <- 0.98
+n <- nrow(rend_log)
+
+var_ewma_098 <- numeric(n)
+var_ewma_098[1] <- vol_fija^2
+
+for (i in 2:n) {
+  var_ewma_098[i] <- lambda_098 * var_ewma_098[i - 1] +
+    (1 - lambda_098) * rend_log$r_log[i - 1]^2
+}
+
+rend_log <- rend_log %>%
+  mutate(vol_ewma_098 = sqrt(var_ewma_098))
+
+```
+
+## GARCH simétrico con t-Student
+```{r}
+
+r_garch <- as.numeric(rend_log$r_log)
+
+spec_garch_t <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "std"
+)
+
+fit_garch_t <- ugarchfit(
+  spec = spec_garch_t,
+  data = r_garch,
+  solver = "hybrid"
+)
+
+rend_log <- rend_log %>%
+  mutate(vol_garch_t = as.numeric(sigma(fit_garch_t)))
+
+```
+
+## GARCH simétrico con GED
+```{r}
+spec_garch_ged <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(0, 0), include.mean = TRUE),
+  distribution.model = "ged"
+)
+
+fit_garch_ged <- ugarchfit(
+  spec = spec_garch_ged,
+  data = r_garch,
+  solver = "hybrid"
+)
+
+rend_log <- rend_log %>%
+  mutate(vol_garch_ged = as.numeric(sigma(fit_garch_ged)))
+
+```
+
+
+## GJR-GARCH con verosimilitud gaussiana
+```{r}
+
+r_garch <- as.numeric(rend_log$r_log)
+
+spec_gjr_norm <- ugarchspec(
+  variance.model = list(
+    model = "gjrGARCH",
+    garchOrder = c(1, 1)
+  ),
+  mean.model = list(
+    armaOrder = c(0, 0),
+    include.mean = TRUE
+  ),
+  distribution.model = "norm"
+)
+
+fit_gjr_norm <- ugarchfit(
+  spec = spec_gjr_norm,
+  data = r_garch,
+  solver = "hybrid"
+)
+
+rend_log <- rend_log %>%
+  mutate(vol_gjr_norm = as.numeric(sigma(fit_gjr_norm)))
+
+```
+
+
+## GJR-GARCH con verosimilitud t-Student
+```{r}
+spec_gjr_t <- ugarchspec(
+  variance.model = list(
+    model = "gjrGARCH",
+    garchOrder = c(1, 1)
+  ),
+  mean.model = list(
+    armaOrder = c(0, 0),
+    include.mean = TRUE
+  ),
+  distribution.model = "std"
+)
+
+fit_gjr_t <- ugarchfit(
+  spec = spec_gjr_t,
+  data = r_garch,
+  solver = "hybrid"
+)
+
+rend_log <- rend_log %>%
+  mutate(vol_gjr_t = as.numeric(sigma(fit_gjr_t)))
+
+```
+
+## GJR-GARCH con verosimilitud GED
+```{r}
+spec_gjr_ged <- ugarchspec(
+  variance.model = list(
+    model = "gjrGARCH",
+    garchOrder = c(1, 1)
+  ),
+  mean.model = list(
+    armaOrder = c(0, 0),
+    include.mean = TRUE
+  ),
+  distribution.model = "ged"
+)
+
+fit_gjr_ged <- ugarchfit(
+  spec = spec_gjr_ged,
+  data = r_garch,
+  solver = "hybrid"
+)
+
+rend_log <- rend_log %>%
+  mutate(vol_gjr_ged = as.numeric(sigma(fit_gjr_ged)))
+
+```
+
+## Grafica compartica de volatilida fija con suavizamiento exponencial
+```{r}
+# Plano 1: Volatilidad fija
+g1 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = rep(vol_fija, nrow(rend_log)),
+  type = "scatter",
+  mode = "lines",
+  name = "Volatilidad fija"
+)
+
+# Plano 2: EWMA lambda = 0.94
+g2 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_ewma,
+  type = "scatter",
+  mode = "lines",
+  name = "EWMA (λ = 0.95)"
+)
+
+# Plano 3: EWMA lambda = 0.98
+g3 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_ewma_098,
+  type = "scatter",
+  mode = "lines",
+  name = "EWMA (λ = 0.98)"
+)
+
+# Unir en un solo bloque con 3 planos
+subplot(
+  g1, g2, g3,
+  nrows = 3,
+  shareX = TRUE,
+  titleY = TRUE
+) %>%
+  layout(
+    title = "Comparación de volatilidad: Fija vs EWMA (λ = 0.95 y λ = 0.98)",
+    
+    xaxis  = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    xaxis2 = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    xaxis3 = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    
+    yaxis  = list(title = "Fija"),
+    yaxis2 = list(title = "EWMA (0.95)"),
+    yaxis3 = list(title = "EWMA (0.98)")
+  )
+
+```
+
+## grafica comparativa de volatilidad GARCH simetricos
+```{r}
+# Plano 1: GARCH simétrico Normal
+g1 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_garch,
+  type = "scatter",
+  mode = "lines",
+  name = "GARCH Normal"
+)
+
+# Plano 2: GARCH simétrico t-Student
+g2 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_garch_t,
+  type = "scatter",
+  mode = "lines",
+  name = "GARCH t-Student"
+)
+
+# Plano 3: GARCH simétrico GED
+g3 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_garch_ged,
+  type = "scatter",
+  mode = "lines",
+  name = "GARCH GED"
+)
+
+# Unir las tres gráficas en un solo bloque
+subplot(
+  g1, g2, g3,
+  nrows = 3,
+  shareX = TRUE,
+  titleY = TRUE
+) %>%
+  layout(
+    title = "Comparación de volatilidades GARCH simétricas – Fondo QQQ (MXN)",
+    
+    xaxis  = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    xaxis2 = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    xaxis3 = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    
+    yaxis  = list(title = "GARCH Normal"),
+    yaxis2 = list(title = "GARCH t-Student"),
+    yaxis3 = list(title = "GARCH GED")
+  )
+
+```
+
+## Grafica comparativa de volatilidad GJR-GARCH asimetricos
+```{r}
+# Plano 1: GJR-GARCH Normal
+g1 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_gjr_norm,
+  type = "scatter",
+  mode = "lines",
+  name = "GJR-GARCH Normal"
+)
+
+# Plano 2: GJR-GARCH t-Student
+g2 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_gjr_t,
+  type = "scatter",
+  mode = "lines",
+  name = "GJR-GARCH t-Student"
+)
+
+# Plano 3: GJR-GARCH GED
+g3 <- plot_ly(
+  data = rend_log,
+  x = ~Date,
+  y = ~vol_gjr_ged,
+  type = "scatter",
+  mode = "lines",
+  name = "GJR-GARCH GED"
+)
+
+# Unir en un solo bloque
+subplot(
+  g1, g2, g3,
+  nrows = 3,
+  shareX = TRUE,
+  titleY = TRUE
+) %>%
+  layout(
+    title = "Comparación de volatilidades GJR-GARCH – Fondo QQQ (MXN)",
+    
+    xaxis  = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    xaxis2 = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    xaxis3 = list(title = "Fecha", showticklabels = TRUE, tickformat = "%Y-%m-%d"),
+    
+    yaxis  = list(title = "GJR-GARCH Normal"),
+    yaxis2 = list(title = "GJR-GARCH t-Student"),
+    yaxis3 = list(title = "GJR-GARCH GED")
+  )
+
+```
+
+## Extraccion de metricas del modelo
+```{r}
+tabla_modelos <- tibble(
+  Modelo = c(
+    "GARCH Normal",
+    "GARCH t-Student",
+    "GARCH GED",
+    "GJR-GARCH Normal",
+    "GJR-GARCH t-Student",
+    "GJR-GARCH GED"
+  ),
+  LogLik = c(
+    likelihood(fit_garch),
+    likelihood(fit_garch_t),
+    likelihood(fit_garch_ged),
+    likelihood(fit_gjr_norm),
+    likelihood(fit_gjr_t),
+    likelihood(fit_gjr_ged)
+  ),
+  AIC = c(
+    infocriteria(fit_garch)[1],
+    infocriteria(fit_garch_t)[1],
+    infocriteria(fit_garch_ged)[1],
+    infocriteria(fit_gjr_norm)[1],
+    infocriteria(fit_gjr_t)[1],
+    infocriteria(fit_gjr_ged)[1]
+  ),
+  BIC = c(
+    infocriteria(fit_garch)[2],
+    infocriteria(fit_garch_t)[2],
+    infocriteria(fit_garch_ged)[2],
+    infocriteria(fit_gjr_norm)[2],
+    infocriteria(fit_gjr_t)[2],
+    infocriteria(fit_gjr_ged)[2]
+  )
+)
+
+```
+
+
+## Tabla comparativa
+```{r}
+datatable(
+  tabla_modelos %>% arrange(AIC),
+  options = list(pageLength = 10),
+  caption = "Comparación cuantitativa de modelos de volatilidad (QQQ en MXN)"
+)
+
+```
+
+## Conclusión
+Como sabemos el uso de modelos JGR presentan un mejor ajuste que los modelos GARCH simetricos, en este caso se puede notar que el modelo GJR-GARCH t-Studen fue el mejor, debido a que presenta el mejor ajuste para modelar la volatilidad de los rendimientos continuamente compuestos del fondo QQQ. Asimismo, sujiere la presencia de simetría en la volatilidad y colas pesadas en la distribución de los rendimientos, caracteristicas que suelen ser comunes en observaciones del sector financiero.
+
+
