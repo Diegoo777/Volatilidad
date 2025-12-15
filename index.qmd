@@ -12,6 +12,13 @@ lang: es
 format: html
 ---
 
+Universidad Michoacana de San Nicolas de Hidalgo
+
+Lic.  En Actuaria y Ciencia de Datos 
+
+![](logo.png){width=200px}      ![](actuaria.jpg){width=300px}
+
+
 # ¿Cómo medimos el miedo en los mercados? Una guía simple sobre Volatilidad Histórica, EWMA y GARCH
 
 ## Introducción: El pulso del mercado
